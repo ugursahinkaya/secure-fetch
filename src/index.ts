@@ -18,8 +18,6 @@ export class SecureFetch<
     }
   }
   protected async checkAccessToken(data: Record<string, any>) {
-    console.log("checkAccessToken res", data);
-
     this.saveTokens(
       data as {
         refreshToken: string;
@@ -60,7 +58,6 @@ export class SecureFetch<
     accessToken: string;
     expiryDate: string;
   }) {
-    console.log("saveTokens", data);
     const { refreshToken, accessToken, expiryDate } = data;
     if (!accessToken && !refreshToken) {
       return { error: true };
@@ -77,7 +74,6 @@ export class SecureFetch<
     return {};
   }
   protected async getQueryToken() {
-    console.log("SecureFetch getQueryToken");
     await this.crypto.generateKey("server");
     const clientPublicKeyBytes = await this.crypto.exportKey("server");
     const clientPublicKey =
@@ -98,7 +94,6 @@ export class SecureFetch<
     this.checkStatus(response);
     this.checkCookies(response);
     const data = await response.json();
-    console.log("data", data);
     try {
       const publicKey = this.crypto.base64ToArrayBuffer(
         data.serverPublicKey as string
@@ -119,7 +114,6 @@ export class SecureFetch<
       this.ready = true;
       return {};
     } catch (err) {
-      console.log(err);
       return { error: true };
     }
   }
@@ -127,7 +121,6 @@ export class SecureFetch<
     public serverDomain: string,
     operations: TOperations
   ) {
-    console.log("SecureFetch constructor", operations);
     super(operations);
     this.crypto = new CryptoLib();
     void this.getQueryToken();
@@ -190,7 +183,6 @@ export class SecureFetch<
     const res = await this.fetch(`${this.serverDomain}/refreshToken`, {
       refreshToken,
     });
-    console.log("refreshr res", res);
     return this.saveTokens(res);
   }
   async getAccessToken(username: string, password: string) {
@@ -198,8 +190,6 @@ export class SecureFetch<
       username,
       password,
     });
-    console.log("getAccessToken res", res);
-
     return this.saveTokens(res);
   }
 }
