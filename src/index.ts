@@ -107,11 +107,17 @@ export class SecureFetch<
         }
         return this.refresh(refreshToken);
       }
+
       this.crypto.keyMap.set("serverSCR", secret);
       if (!this.ready) {
-        void this.call("readyToFetch");
+        if (data.process === "loggedIn") {
+          void this.call("loggedIn", data.queryToken);
+        } else {
+          void this.call("readyToFetch");
+        }
+        this.ready = true;
       }
-      this.ready = true;
+
       return {};
     } catch (err) {
       return { error: true };
