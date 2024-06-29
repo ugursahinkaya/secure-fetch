@@ -185,9 +185,9 @@ export class SecureFetch<
     });
     return this.saveTokens(res);
   }
-  async getAccessToken(username: string, password: string) {
+  async getAccessToken(userName: string, password: string) {
     const res = await this.fetch(`${this.serverDomain}/getAccessToken`, {
-      username,
+      userName,
       password,
     });
     return this.saveTokens(res);
