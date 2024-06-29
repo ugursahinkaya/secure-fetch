@@ -73,7 +73,7 @@ export class SecureFetch<
 
     return {};
   }
-  protected async getQueryToken() {
+  async getQueryToken() {
     await this.crypto.generateKey("server");
     const clientPublicKeyBytes = await this.crypto.exportKey("server");
     const clientPublicKey =
@@ -162,11 +162,11 @@ export class SecureFetch<
       credentials: "include",
       referrerPolicy: "same-origin",
       headers: {
-        "Content-Type": "octet-stream",
         ...extraArgs.headers,
+        "Content-Type": "octet-stream",
       },
       body: new Blob([iv, ciphertext], {
-        type: "text/plain",
+        type: "application/octet-stream",
       }),
       ...extraArgs,
     };
