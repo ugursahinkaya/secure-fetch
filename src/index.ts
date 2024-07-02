@@ -23,6 +23,7 @@ export class SecureFetch<
         refreshToken: string;
         accessToken: string;
         expiryDate: string;
+        queryToken: string;
       }
     );
   }
@@ -57,8 +58,9 @@ export class SecureFetch<
     refreshToken: string;
     accessToken: string;
     expiryDate: string;
+    queryToken: string;
   }) {
-    const { refreshToken, accessToken, expiryDate } = data;
+    const { refreshToken, accessToken, expiryDate, queryToken } = data;
     if (!accessToken && !refreshToken) {
       return { error: true };
     }
@@ -71,7 +73,7 @@ export class SecureFetch<
       this.expiryDate = expiryDate;
     }
 
-    return {};
+    return { queryToken, refreshToken };
   }
   async getQueryToken() {
     await this.crypto.generateKey("server");
