@@ -27,7 +27,7 @@
       "umd": "./dist/index.umd.js"
     }
   },
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "browser": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,6 +49,7 @@
     "build": "rollup -c"
   },
   "devDependencies": {
+    "@rollup/plugin-replace": "^5.0.7",
     "@rollup/plugin-terser": "^0.4.4",
     "prettier": "^3.3.2",
     "rollup": "^4.18.0",
@@ -59,7 +60,8 @@
   "dependencies": {
     "@ugursahinkaya/crypto-lib": "0.1.0",
     "@ugursahinkaya/generic-router": "0.1.0",
-    "@ugursahinkaya/shared-types": "0.1.0"
+    "@ugursahinkaya/shared-types": "0.1.0",
+    "@ugursahinkaya/utils": "0.1.0"
   },
   "engines": {
     "node": "18"

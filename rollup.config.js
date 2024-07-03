@@ -3,6 +3,7 @@ import dts from "rollup-plugin-dts";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 import terser from "@rollup/plugin-terser";
+import replace from "@rollup/plugin-replace";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,6 +16,22 @@ export default [
         file: "dist/index.cjs",
         format: "cjs",
       },
+    ],
+    plugins: [
+      replace({
+        preventAssignment: true,
+        delimiters: ["", ""],
+        "this.getDeviceTokenFromLS()": "this.getDeviceTokenFromEnv()",
+      }),
+      typescript({
+        tsconfig: "./tsconfig.json",
+      }),
+      terser(),
+    ],
+  },
+  {
+    input: "src/index.ts",
+    output: [
       {
         file: "dist/index.js",
         format: "es",

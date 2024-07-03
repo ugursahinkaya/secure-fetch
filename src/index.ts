@@ -1,5 +1,6 @@
 import { CryptoLib } from "@ugursahinkaya/crypto-lib";
 import { GenericRouter } from "@ugursahinkaya/generic-router";
+import { randomString } from "@ugursahinkaya/utils";
 import type { SecureFetchApiOperations } from "@ugursahinkaya/shared-types";
 
 export class SecureFetch<
@@ -12,6 +13,8 @@ export class SecureFetch<
   protected queryToken: string | undefined;
   protected cookies: Record<string, any> = {};
   protected ready = false;
+  protected deviceId: string;
+
   protected checkStatus(response: Response) {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} - ${response.statusText}`);
@@ -59,7 +62,11 @@ export class SecureFetch<
     accessToken: string;
     expiryDate: string;
     queryToken: string;
+    error?: string;
   }) {
+    if (data.error) {
+      throw new Error(data.error);
+    }
     const { refreshToken, accessToken, expiryDate, queryToken } = data;
     if (!accessToken && !refreshToken) {
       return { error: true };
@@ -88,6 +95,7 @@ export class SecureFetch<
       referrerPolicy: "same-origin",
       headers: {
         "Content-Type": "application/json",
+        Cookie: `deviceId=${this.deviceId};`,
       },
       body: JSON.stringify({ clientPublicKey }),
     };
@@ -130,8 +138,24 @@ export class SecureFetch<
     operations: TOperations
   ) {
     super(operations);
+    this.deviceId = this.getDeviceTokenFromLS();
     this.crypto = new CryptoLib();
     void this.getQueryToken();
+  }
+  protected getDeviceTokenFromEnv(): string {
+    const deviceId = process.env.DEVICE_TOKEN;
+    if (!deviceId) {
+      throw new Error("DEVICE_TOKEN must ve provided");
+    }
+    return deviceId;
+  }
+  protected getDeviceTokenFromLS(): string {
+    let deviceId = localStorage.getItem("deviceId");
+    if (!deviceId) {
+      deviceId = randomString(40);
+      localStorage.setItem("deviceId", deviceId);
+    }
+    return deviceId;
   }
   queryTokenValue() {
     return this.queryToken;
@@ -140,7 +164,7 @@ export class SecureFetch<
     path: string,
     body: any,
     method = "POST",
-    extraArgs: Partial<RequestInit> = {}
+    extraArgs: Record<string, any> = {}
   ) {
     if (!this.crypto.hasSecret("server")) {
       await this.getQueryToken();
@@ -151,7 +175,8 @@ export class SecureFetch<
     );
 
     if (!extraArgs.headers) extraArgs.headers = {};
-    let cookie = "";
+    let cookie = `deviceId=${this.deviceId};`;
+
     if (this.queryToken) {
       cookie += `queryToken=${this.queryToken}`;
     }
@@ -161,8 +186,13 @@ export class SecureFetch<
       }
       cookie += `accessToken=${this.accessToken}`;
     }
-    //@ts-expect-error TODO:
-    extraArgs.headers["Cookie"] = cookie;
+    if (extraArgs.headers?.Cookie) {
+      extraArgs.headers.Cookie += `; ${cookie}`;
+    } else {
+      extraArgs.headers.Cookie = cookie;
+    }
+
+    const { headers, ...eArgs } = extraArgs;
 
     const args: RequestInit = {
       method,
@@ -170,14 +200,15 @@ export class SecureFetch<
       credentials: "include",
       referrerPolicy: "same-origin",
       headers: {
-        ...extraArgs.headers,
+        ...headers,
         "Content-Type": "octet-stream",
       },
       body: new Blob([iv, ciphertext], {
         type: "application/octet-stream",
       }),
-      ...extraArgs,
+      ...eArgs,
     };
+
     const response = await fetch(new Request(path, args));
     this.checkStatus(response);
     this.checkCookies(response);
