@@ -1,6 +1,9 @@
 import { CryptoLib } from "@ugursahinkaya/crypto-lib";
 import { GenericRouter } from "@ugursahinkaya/generic-router";
+import { Logger } from "@ugursahinkaya/logger";
 import { randomString } from "@ugursahinkaya/utils";
+import { LogLevel } from "@ugursahinkaya/shared-types";
+
 import type { SecureFetchApiOperations } from "@ugursahinkaya/shared-types";
 
 export class SecureFetch<
@@ -14,9 +17,14 @@ export class SecureFetch<
   protected cookies: Record<string, any> = {};
   protected ready = false;
   protected deviceId: string;
+  protected secureFetchLogger: Logger;
 
-  protected checkStatus(response: Response) {
+  protected checkStatus(response: Response, path: string) {
     if (!response.ok) {
+      this.secureFetchLogger.error(
+        [`${path} response status error`, response.status],
+        "checkStatus"
+      );
       throw new Error(`HTTP ${response.status} - ${response.statusText}`);
     }
   }
@@ -30,9 +38,10 @@ export class SecureFetch<
       }
     );
   }
-  protected checkCookies(response: Response) {
+  protected checkCookies(response: Response, path: string) {
     const { headers } = response;
     const cookies = headers.get("set-cookie");
+    this.secureFetchLogger.debug([path, cookies], "checkCookies");
     if (cookies) {
       const cookeiList = cookies.split(",");
       cookeiList.map((keyValue) => {
@@ -51,6 +60,7 @@ export class SecureFetch<
         }
       });
     }
+    this.secureFetchLogger.debug(this.cookies, "checkCookies");
   }
   protected async getPayload(buffer: ArrayBufferLike) {
     const [data, tag, nonce] = this.crypto.prepareBuffer(buffer);
@@ -83,6 +93,8 @@ export class SecureFetch<
     return { queryToken, refreshToken };
   }
   async getQueryToken() {
+    this.secureFetchLogger.debug("", "getQueryToken");
+
     await this.crypto.generateKey("server");
     const clientPublicKeyBytes = await this.crypto.exportKey("server");
     const clientPublicKey =
@@ -101,14 +113,22 @@ export class SecureFetch<
     };
 
     const response = await fetch(new Request(path, args));
-    this.checkStatus(response);
-    this.checkCookies(response);
+
+    this.checkStatus(response, "getQueryToken");
+    this.checkCookies(response, "getQueryToken");
     const data = await response.json();
+    this.secureFetchLogger.debug("getQueryToken response", data);
+
     try {
       const publicKey = this.crypto.base64ToArrayBuffer(
         data.serverPublicKey as string
       );
       const secret = await this.crypto.importPublicKey(publicKey, "server");
+      this.secureFetchLogger.debug(
+        "secret imported for server",
+        "getQueryToken"
+      );
+      this.secureFetchLogger.debug({ process: data.process }, "getQueryToken");
       if (data.process === "refreshToken") {
         const savedRefreshToken = await this.call("getRefreshToken");
         const refreshToken = savedRefreshToken ?? this.refreshToken;
@@ -135,9 +155,11 @@ export class SecureFetch<
   }
   constructor(
     public serverDomain: string,
-    operations: TOperations
+    operations: TOperations,
+    logLevel?: LogLevel
   ) {
     super(operations);
+    this.secureFetchLogger = new Logger("secure-fetch", logLevel);
     this.deviceId = this.getDeviceTokenFromLS();
     this.crypto = new CryptoLib();
     void this.getQueryToken();
@@ -166,6 +188,11 @@ export class SecureFetch<
     method = "POST",
     extraArgs: Record<string, any> = {}
   ) {
+    this.secureFetchLogger.debug(
+      { path, body, extraArgs, cookies: this.cookies },
+      "fetch"
+    );
+
     if (!this.crypto.hasSecret("server")) {
       await this.getQueryToken();
     }
@@ -208,12 +235,15 @@ export class SecureFetch<
       }),
       ...eArgs,
     };
+    this.secureFetchLogger.debug({ args, path }, "fetch");
 
     const response = await fetch(new Request(path, args));
-    this.checkStatus(response);
-    this.checkCookies(response);
+    this.checkStatus(response, path);
+    this.checkCookies(response, path);
     const buffer = await response.arrayBuffer();
     const res = await this.getPayload(buffer);
+    this.secureFetchLogger.debug({ response: res, path }, "fetch");
+
     //this.checkAccessToken(res);
     return res;
   }
