@@ -22,13 +22,15 @@ export class SecureFetch<
   protected checkStatus(response: Response, path: string) {
     if (!response.ok) {
       this.secureFetchLogger.error(
-        [`${path} response status error`, response.status],
-        "checkStatus"
+        `response status error: ${response.status}`,
+        ["checkStatus", path]
       );
       throw new Error(`HTTP ${response.status} - ${response.statusText}`);
     }
   }
   protected async checkAccessToken(data: Record<string, any>) {
+    this.secureFetchLogger.debug(data, ["checkAccessToken"]);
+
     this.saveTokens(
       data as {
         refreshToken: string;
@@ -41,7 +43,7 @@ export class SecureFetch<
   protected checkCookies(response: Response, path: string) {
     const { headers } = response;
     const cookies = headers.get("set-cookie");
-    this.secureFetchLogger.debug([path, cookies], "checkCookies");
+    this.secureFetchLogger.debug(cookies ?? {}, ["checkCookies", path]);
     if (cookies) {
       const cookeiList = cookies.split(",");
       cookeiList.map((keyValue) => {
@@ -60,7 +62,6 @@ export class SecureFetch<
         }
       });
     }
-    this.secureFetchLogger.debug(this.cookies, "checkCookies");
   }
   protected async getPayload(buffer: ArrayBufferLike) {
     const [data, tag, nonce] = this.crypto.prepareBuffer(buffer);
@@ -74,6 +75,8 @@ export class SecureFetch<
     queryToken: string;
     error?: string;
   }) {
+    this.secureFetchLogger.debug(data, "saveTokens");
+
     if (data.error) {
       throw new Error(data.error);
     }
@@ -88,13 +91,13 @@ export class SecureFetch<
     if (accessToken) {
       this.accessToken = accessToken;
       this.expiryDate = expiryDate;
+      void this.call("loggedIn", queryToken);
     }
 
     return { queryToken, refreshToken };
   }
   async getQueryToken() {
     this.secureFetchLogger.debug("", "getQueryToken");
-
     await this.crypto.generateKey("server");
     const clientPublicKeyBytes = await this.crypto.exportKey("server");
     const clientPublicKey =
@@ -117,7 +120,7 @@ export class SecureFetch<
     this.checkStatus(response, "getQueryToken");
     this.checkCookies(response, "getQueryToken");
     const data = await response.json();
-    this.secureFetchLogger.debug("getQueryToken response", data);
+    this.secureFetchLogger.debug(data, ["getQueryToken", "response"]);
 
     try {
       const publicKey = this.crypto.base64ToArrayBuffer(
@@ -159,8 +162,13 @@ export class SecureFetch<
     logLevel?: LogLevel
   ) {
     super(operations);
-    this.secureFetchLogger = new Logger("secure-fetch", logLevel);
+    this.secureFetchLogger = new Logger(
+      "secure-fetch",
+      "#8815EE",
+      logLevel ?? "trace"
+    );
     this.deviceId = this.getDeviceTokenFromLS();
+    this.secureFetchLogger.debug(this.deviceId, ["constructor", "deviceId"]);
     this.crypto = new CryptoLib();
     void this.getQueryToken();
   }
@@ -188,10 +196,9 @@ export class SecureFetch<
     method = "POST",
     extraArgs: Record<string, any> = {}
   ) {
-    this.secureFetchLogger.debug(
-      { path, body, extraArgs, cookies: this.cookies },
-      "fetch"
-    );
+    if (this.queryToken && extraArgs.cookies) {
+      extraArgs.cookies.queryToken = this.queryToken;
+    }
 
     if (!this.crypto.hasSecret("server")) {
       await this.getQueryToken();
@@ -228,14 +235,14 @@ export class SecureFetch<
       referrerPolicy: "same-origin",
       headers: {
         ...headers,
-        "Content-Type": "octet-stream",
+        "Content-Type": "application/octet-stream",
       },
       body: new Blob([iv, ciphertext], {
         type: "application/octet-stream",
       }),
       ...eArgs,
     };
-    this.secureFetchLogger.debug({ args, path }, "fetch");
+    this.secureFetchLogger.debug(args, ["fetch", path, "args"]);
 
     const response = await fetch(new Request(path, args));
     this.checkStatus(response, path);
@@ -243,18 +250,19 @@ export class SecureFetch<
     const buffer = await response.arrayBuffer();
     const res = await this.getPayload(buffer);
     this.secureFetchLogger.debug({ response: res, path }, "fetch");
-
-    //this.checkAccessToken(res);
     return res;
   }
 
   async refresh(refreshToken: string) {
+    this.secureFetchLogger.debug(refreshToken, ["refresh"]);
     const res = await this.fetch(`${this.serverDomain}/refreshToken`, {
       refreshToken,
     });
     return this.saveTokens(res);
   }
   async getAccessToken(userName: string, password: string) {
+    this.secureFetchLogger.debug(userName, ["getAccessToken"]);
+
     const res = await this.fetch(`${this.serverDomain}/getAccessToken`, {
       userName,
       password,
