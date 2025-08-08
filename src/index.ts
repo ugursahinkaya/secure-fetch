@@ -2,9 +2,11 @@ import { CryptoLib } from "@ugursahinkaya/crypto-lib";
 import { GenericRouter } from "@ugursahinkaya/generic-router";
 import { Logger } from "@ugursahinkaya/logger";
 import { randomString } from "@ugursahinkaya/utils";
-import { LogLevel } from "@ugursahinkaya/shared-types";
 
-import type { SecureFetchApiOperations } from "@ugursahinkaya/shared-types";
+import type {
+  SecureFetchApiOperations,
+  LogLevel,
+} from "@ugursahinkaya/shared-types";
 
 export class SecureFetch<
   TOperations extends SecureFetchApiOperations,
@@ -16,18 +18,11 @@ export class SecureFetch<
   protected queryToken: string | undefined;
   protected cookies: Record<string, any> = {};
   protected ready = false;
-  protected deviceId: string;
+  protected deviceToken: string;
   protected secureFetchLogger: Logger;
-
-  protected checkStatus(response: Response, path: string) {
-    if (!response.ok) {
-      this.secureFetchLogger.error(
-        `response status error: ${response.status}`,
-        ["checkStatus", path]
-      );
-      throw new Error(`HTTP ${response.status} - ${response.statusText}`);
-    }
-  }
+  protected serverDomain: string;
+  protected initPromises: Promise<void>[] = [];
+  protected onFetchError?: (error: any) => void;
   protected async checkAccessToken(data: Record<string, any>) {
     this.secureFetchLogger.debug(data, ["checkAccessToken"]);
 
@@ -97,7 +92,11 @@ export class SecureFetch<
     return { queryToken, refreshToken };
   }
   async getQueryToken() {
+    await Promise.all(this.initPromises);
     this.secureFetchLogger.debug("", "getQueryToken");
+    if (!this.deviceToken) {
+      throw new Error("deviceToken must be provided");
+    }
     await this.crypto.generateKey("server");
     const clientPublicKeyBytes = await this.crypto.exportKey("server");
     const clientPublicKey =
@@ -110,82 +109,119 @@ export class SecureFetch<
       referrerPolicy: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        Cookie: `deviceId=${this.deviceId};`,
+        Cookie: `deviceToken=${this.deviceToken};queryToken=${this.queryToken}`,
       },
-      body: JSON.stringify({ clientPublicKey }),
+      body: JSON.stringify({ clientPublicKey, deviceToken: this.deviceToken }),
     };
 
-    const response = await fetch(new Request(path, args));
 
-    this.checkStatus(response, "getQueryToken");
-    this.checkCookies(response, "getQueryToken");
-    const data = await response.json();
-    this.secureFetchLogger.debug(data, ["getQueryToken", "response"]);
 
     try {
-      const publicKey = this.crypto.base64ToArrayBuffer(
-        data.serverPublicKey as string
-      );
-      const secret = await this.crypto.importPublicKey(publicKey, "server");
-      this.secureFetchLogger.debug(
-        "secret imported for server",
-        "getQueryToken"
-      );
-      this.secureFetchLogger.debug({ process: data.process }, "getQueryToken");
-      if (data.process === "refreshToken") {
-        const savedRefreshToken = await this.call("getRefreshToken");
-        const refreshToken = savedRefreshToken ?? this.refreshToken;
-        if (!refreshToken) {
-          throw new Error("refreshToken must be provided");
-        }
-        return this.refresh(refreshToken);
-      }
+      const response = await fetch(new Request(path, args));
+      this.checkCookies(response, "getQueryToken");
+      const data = await response.json();
+      this.secureFetchLogger.debug(data, ["getQueryToken", "response"]);
 
-      this.crypto.keyMap.set("serverSCR", secret);
-      if (!this.ready) {
-        if (data.process === "loggedIn") {
-          void this.call("loggedIn", data.queryToken);
-        } else {
-          void this.call("readyToFetch");
-        }
-        this.ready = true;
-      }
+      try {
+        const publicKey = this.crypto.base64ToArrayBuffer(
+          data.serverPublicKey as string
+        );
+        const secret = await this.crypto.importPublicKey(
+          publicKey as BufferSource,
+          "server"
+        );
+        this.secureFetchLogger.debug(
+          "secret imported for server",
+          "getQueryToken"
+        );
+        this.secureFetchLogger.debug({ process: data.process }, "getQueryToken");
+        this.crypto.keyMap.set("serverSCR", secret);
 
-      return {};
-    } catch (err) {
-      return { error: true };
+        if (data.process === "refreshToken") {
+          const savedRefreshToken = await this.call("getRefreshToken");
+          const refreshToken = savedRefreshToken ?? this.refreshToken;
+          if (!refreshToken) {
+            throw new Error("refreshToken must be provided");
+          }
+          return this.refresh(refreshToken);
+        }
+        if (!this.ready) {
+          if (data.process === "loggedIn") {
+            void this.call("loggedIn", data.queryToken);
+          } else {
+            void this.call("readyToFetch");
+          }
+          this.ready = true;
+        }
+
+        return {};
+      } catch (err) {
+        return { error: true };
+      }
+    } catch (error: any) {
+      this.secureFetchLogger.error(error, ["fetch", "getAccessToken"]);
+      if (this.onFetchError) {
+        this.onFetchError(error);
+        return {};
+      }
+      throw new Error(error);
     }
+
+
+
   }
-  constructor(
-    public serverDomain: string,
-    operations: TOperations,
-    logLevel?: LogLevel
-  ) {
+  constructor({
+    serverDomain,
+    operations,
+    logLevel,
+    onReady,
+    onFetchError,
+  }: {
+    serverDomain: string;
+    operations: TOperations;
+    logLevel?: LogLevel;
+    onReady?: () => void;
+    onFetchError?: (error: any) => void;
+  }) {
     super(operations);
+    this.serverDomain = serverDomain;
+    this.onFetchError = onFetchError;
     this.secureFetchLogger = new Logger(
       "secure-fetch",
       "#8815EE",
       logLevel ?? "trace"
     );
-    this.deviceId = this.getDeviceTokenFromLS();
-    this.secureFetchLogger.debug(this.deviceId, ["constructor", "deviceId"]);
+    this.deviceToken = this.getDeviceTokenFromLS();
+    this.secureFetchLogger.debug(this.deviceToken, [
+      "constructor",
+      "deviceToken",
+    ]);
     this.crypto = new CryptoLib();
-    void this.getQueryToken();
+    this.initPromises.push(
+      new Promise<void>((resolve) => {
+        void this.getQueryToken().then(() => {
+          if (onReady) {
+            onReady();
+          }
+          resolve();
+        });
+      })
+    );
   }
   protected getDeviceTokenFromEnv(): string {
-    const deviceId = process.env.DEVICE_TOKEN;
-    if (!deviceId) {
+    const deviceToken = process.env.DEVICE_TOKEN;
+    if (!deviceToken) {
       throw new Error("DEVICE_TOKEN must ve provided");
     }
-    return deviceId;
+    return deviceToken;
   }
   protected getDeviceTokenFromLS(): string {
-    let deviceId = localStorage.getItem("deviceId");
-    if (!deviceId) {
-      deviceId = randomString(40);
-      localStorage.setItem("deviceId", deviceId);
+    let deviceToken = localStorage.getItem("deviceToken");
+    if (!deviceToken) {
+      deviceToken = randomString(40);
+      localStorage.setItem("deviceToken", deviceToken);
     }
-    return deviceId;
+    return deviceToken;
   }
   queryTokenValue() {
     return this.queryToken;
@@ -196,10 +232,10 @@ export class SecureFetch<
     method = "POST",
     extraArgs: Record<string, any> = {}
   ) {
+    await Promise.all(this.initPromises);
     if (this.queryToken && extraArgs.cookies) {
       extraArgs.cookies.queryToken = this.queryToken;
     }
-
     if (!this.crypto.hasSecret("server")) {
       await this.getQueryToken();
     }
@@ -207,17 +243,14 @@ export class SecureFetch<
       JSON.stringify(body),
       "server"
     );
-
+    let cookie = "";
     if (!extraArgs.headers) extraArgs.headers = {};
-    let cookie = `deviceId=${this.deviceId};`;
+    cookie = `deviceToken=${this.deviceToken};`;
 
     if (this.queryToken) {
-      cookie += `queryToken=${this.queryToken}`;
+      cookie += `queryToken=${this.queryToken};`;
     }
     if (this.accessToken) {
-      if (this.queryToken !== "") {
-        cookie += "; ";
-      }
       cookie += `accessToken=${this.accessToken}`;
     }
     if (extraArgs.headers?.Cookie) {
@@ -243,30 +276,58 @@ export class SecureFetch<
       ...eArgs,
     };
     this.secureFetchLogger.debug(args, ["fetch", path, "args"]);
-
-    const response = await fetch(new Request(path, args));
-    this.checkStatus(response, path);
-    this.checkCookies(response, path);
-    const buffer = await response.arrayBuffer();
-    const res = await this.getPayload(buffer);
-    this.secureFetchLogger.debug({ response: res, path }, "fetch");
-    return res;
+    try {
+      const response = await fetch(new Request(path, args))
+      this.checkCookies(response, path);
+      const buffer = await response.arrayBuffer();
+      const res = await this.getPayload(buffer);
+      this.secureFetchLogger.debug({ response: res, path }, "fetch");
+      if (response.status === 202 || response.status === 403) {
+        await this.getQueryToken();
+      }
+      return res;
+    } catch (error: any) {
+      this.secureFetchLogger.error(error, ["fetch", path]);
+      if (this.onFetchError) {
+        this.onFetchError(error);
+        return {};
+      }
+      throw new Error(error);
+    }
   }
 
   async refresh(refreshToken: string) {
     this.secureFetchLogger.debug(refreshToken, ["refresh"]);
-    const res = await this.fetch(`${this.serverDomain}/refreshToken`, {
-      refreshToken,
-    });
-    return this.saveTokens(res);
+    try {
+      const res = await this.fetch(`${this.serverDomain}/refreshToken`, {
+        refreshToken,
+      });
+      return this.saveTokens(res);
+    } catch (error: any) {
+      this.secureFetchLogger.error(error, ["fetch", "refresh"]);
+      if (this.onFetchError) {
+        this.onFetchError(error);
+        return {};
+      }
+      throw new Error(error);
+    }
   }
   async getAccessToken(userName: string, password: string) {
     this.secureFetchLogger.debug(userName, ["getAccessToken"]);
 
-    const res = await this.fetch(`${this.serverDomain}/getAccessToken`, {
-      userName,
-      password,
-    });
-    return this.saveTokens(res);
+    try {
+      const res = await this.fetch(`${this.serverDomain}/getAccessToken`, {
+        userName,
+        password,
+      });
+      return this.saveTokens(res);
+    } catch (error: any) {
+      this.secureFetchLogger.error(error, ["fetch", "getAccessToken"]);
+      if (this.onFetchError) {
+        this.onFetchError(error);
+        return {};
+      }
+      throw new Error(error);
+    }
   }
 }

@@ -8,6 +8,9 @@ import replace from "@rollup/plugin-replace";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/**
+ * @type {import('rollup').RollupOptions[]}
+ */
 export default [
   {
     input: "src/index.ts",
@@ -26,7 +29,7 @@ export default [
       typescript({
         tsconfig: "./tsconfig.json",
       }),
-      terser(),
+      //terser(),
     ],
   },
   {
@@ -52,7 +55,7 @@ export default [
       typescript({
         tsconfig: "./tsconfig.json",
       }),
-      terser(),
+      // terser(),
     ],
   },
   {
