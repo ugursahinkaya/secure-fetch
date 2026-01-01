@@ -1,7 +1,7 @@
 {
   "name": "@ugursahinkaya/secure-fetch",
   "type": "module",
-  "version": "2.1.0",
+  "version": "2.1.5",
   "license": "GPL-3.0 or Commerical",
   "description": "",
   "author": "Uğur Şahinkaya <ugur@sahinkaya.xyz>",
@@ -51,6 +51,7 @@
     "rollup": "^4.45.1",
     "rollup-plugin-dts": "^6.2.1",
     "rollup-plugin-typescript2": "^0.36.0",
+    "tsup": "^8.5.1",
     "typescript": "5.8.3"
   },
   "dependencies": {
@@ -58,7 +59,8 @@
     "@ugursahinkaya/generic-router": "^2.1.0",
     "@ugursahinkaya/logger": "^2.1.0",
     "@ugursahinkaya/shared-types": "^2.1.0",
-    "@ugursahinkaya/utils": "^2.1.0"
+    "@ugursahinkaya/utils": "^2.1.0",
+    "jsqr": "^1.4.0"
   },
   "engines": {
     "node": "18"
