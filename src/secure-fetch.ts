@@ -1,5 +1,6 @@
 import { GenericRouter } from "@ugursahinkaya/generic-router";
 import { Logger } from "@ugursahinkaya/logger";
+import { randomString } from "@ugursahinkaya/utils";
 
 import type { SecureFetchApiOperations } from "@ugursahinkaya/shared-types";
 import type { SecureFetchConfig, TokenData, FetchOptions } from "./types";
@@ -7,7 +8,6 @@ import type { SecureFetchConfig, TokenData, FetchOptions } from "./types";
 import { CryptoManager } from "./crypto-manager";
 import { TokenManager } from "./token-manager";
 import { CookieManager } from "./cookie-manager";
-import { getDeviceTokenFromLS } from "./device-utils";
 import { ApiEndpoints, ProcessTypes } from "./constants";
 
 export class SecureFetch<
@@ -27,18 +27,18 @@ export class SecureFetch<
 
   constructor(config: SecureFetchConfig<TOperations>) {
     super(config.operations);
-    
+
     this.serverDomain = config.serverDomain;
     this.appToken = config.appToken;
     this.onFetchError = config.onFetchError;
-    
+
     this.secureFetchLogger = new Logger(
       "secure-fetch",
       "#8815EE",
       config.logLevel ?? "error"
     );
 
-    const deviceToken = getDeviceTokenFromLS();
+    const deviceToken = getDeviceToken();
     this.secureFetchLogger.debug(deviceToken, ["constructor", "deviceToken"]);
 
     this.tokenManager = new TokenManager(deviceToken);
@@ -109,7 +109,7 @@ export class SecureFetch<
     const { headers = {}, ...restOptions } = options;
     const existingCookie = (headers as Record<string, string>).Cookie;
     const finalCookie = existingCookie ? `${existingCookie}; ${cookieHeader}` : cookieHeader;
-    
+
     const mergedHeaders: HeadersInit = {
       ...headers,
       "Content-Type": "application/octet-stream",
@@ -137,19 +137,19 @@ export class SecureFetch<
       const response = await fetch(new Request(path, { ...args, signal: controller.signal }));
       clearTimeout(timeoutId);
       this.cookieManager.parseCookies(response);
-      
+
       // Validate response
       if (!response.ok && response.status !== 202 && response.status !== 403) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const buffer = await response.arrayBuffer();
       if (buffer.byteLength === 0) {
         throw new Error("Empty response from server");
       }
-      
+
       const result = await this.cryptoManager.decrypt(buffer);
-      
+
       this.secureFetchLogger.debug({ response: result, path }, "fetch");
 
       if (response.status === 202 || response.status === 403) {
@@ -223,7 +223,7 @@ export class SecureFetch<
       await this.initPromise;
       return;
     }
-    
+
     this.secureFetchLogger.debug("", "getQueryToken");
 
     const clientPublicKey = await this.cryptoManager.generateServerKey();
@@ -256,7 +256,7 @@ export class SecureFetch<
     try {
       const response = await fetch(new Request(path, args));
       this.cookieManager.parseCookies(response);
-      
+
       const data = await response.json();
       this.secureFetchLogger.debug(data, ["getQueryToken", "response"]);
 
@@ -330,4 +330,27 @@ export class SecureFetch<
 
     return { queryToken, refreshToken };
   }
+}
+
+
+function getDeviceToken(): string {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") {
+    return getDeviceTokenFromEnv()
+  }
+
+  let deviceToken = localStorage.getItem("deviceToken");
+  if (!deviceToken) {
+    deviceToken = randomString(40);
+    localStorage.setItem("deviceToken", deviceToken);
+  }
+  return deviceToken;
+}
+
+
+function getDeviceTokenFromEnv(): string {
+  const deviceToken = process.env.DEVICE_TOKEN;
+  if (!deviceToken) {
+    throw new Error("DEVICE_TOKEN environment variable must be provided");
+  }
+  return deviceToken;
 }

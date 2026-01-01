@@ -55,10 +55,9 @@ export class TokenManager {
 
   isAccessTokenExpired(): boolean {
     if (!this.expiryDate) return true;
-    // Add 5 minute safety margin
     const expiryTime = new Date(this.expiryDate).getTime();
     const currentTime = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    return expiryTime - currentTime <= fiveMinutes;
+    const tenMinutes = 10 * 60 * 1000;
+    return expiryTime - currentTime <= tenMinutes;
   }
 }
